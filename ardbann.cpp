@@ -132,7 +132,7 @@ void Ardbann::SumAndSquash(float *pointerToInput, float *pointerToOutput, float 
             pointerToOutput[i] += pointerToInput[j] * pointerToWeights[i][j];
         }
         pointerToOutput[i] = tanh(pointerToOutput[i] * PI);               //tanh is a quicker alternative to sigmoid
-        Serial.printf("i:%d This is the SumAndSquash Output %.2f\n", i, pointerToOutput[i]);
+        //Serial.printf("i:%d This is the SumAndSquash Output %.2f\n", i, pointerToOutput[i]);
     }
 }
 
@@ -146,7 +146,7 @@ uint8_t Ardbann::OutputLayer()
         {
             mostLikelyOutput = i;
         }
-        Serial.printf("i: %d neuron: %-3f likely: %d\n", i, network.outputLayer.neurons[i], mostLikelyOutput);
+        //Serial.printf("i: %d neuron: %-3f likely: %d\n", i, network.outputLayer.neurons[i], mostLikelyOutput);
     }
     return mostLikelyOutput;
 }
