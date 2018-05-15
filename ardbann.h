@@ -8,7 +8,8 @@
 
 #include "Arduino.h"
 
-struct InputLayer {
+struct InputLayer
+{
   uint16_t numNeurons;
   uint16_t numRawInputs;
   uint16_t maxInput;
@@ -18,21 +19,26 @@ struct InputLayer {
   double *groupTotal;
 };
 
-struct HiddenLayer {
+struct HiddenLayer
+{
   uint16_t numNeurons;
   uint8_t numLayers;
   float **neuronTable;
   float ***weightLayerTable;
+  float **neuronBiasTable;
 };
 
-struct OutputLayer {
+struct OutputLayer
+{
   String *stringArray;
   uint16_t numNeurons;
   float *neurons;
   float **weightTable;
+  float *neuronBiasTable;
 };
 
-struct Network {
+struct Network
+{
   uint16_t numLayers;
   uint16_t networkResponse;
   InputLayer inputLayer;
@@ -40,9 +46,11 @@ struct Network {
   OutputLayer outputLayer;
 };
 
-class Ardbann {
+class Ardbann
+{
 public:
-  struct SampleBuffer {
+  struct SampleBuffer
+  {
     uint16_t *samples;
     uint32_t sampleRate = 0;
   };
@@ -51,10 +59,12 @@ public:
           const uint16_t numInputs, const uint16_t numInputNeurons,
           const uint16_t numHiddenNeurons, const uint8_t numHiddenLayers,
           const uint16_t numOutputNeurons);
+  Ardbann(uint16_t maxInput, String outputArray[],
+          const uint16_t numInputNeurons, const uint16_t numHiddenNeurons,
+          const uint8_t numHiddenLayers, const uint16_t numOutputNeurons);
   uint8_t InputLayer();
-  void SumAndSquash(float *pointerToInput, float *pointerToOutput,
-                    float **pointerToWeights, uint16_t numInputs,
-                    uint16_t numOutputs);
+  void SumAndSquash(float *Input, float *Output, float *Bias, float **Weights,
+                    uint16_t numInputs, uint16_t numOutputs);
   uint8_t OutputLayer();
   void PrintNetwork();
   void Train(uint8_t correctOutput, uint32_t numSeconds, float learningRate,
@@ -62,7 +72,7 @@ public:
   float tanhDerivative(float inputValue);
   void NewInput(uint16_t rawInputArray[], uint32_t numInputs);
   void NewInput(Ardbann::SampleBuffer sampleBuffer, uint32_t numInputs);
-  void ErrorReporting(uint16_t correctResponse);
+  void ErrorReporting(uint8_t correctResponse);
   void PrintInputNeuronDetails(uint8_t neuronNum);
   void PrintOutputNeuronDetails(uint8_t neuronNum);
   void PrintHiddenNeuronDetails(uint8_t layerNum, uint8_t neuronNum);
