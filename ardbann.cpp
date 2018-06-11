@@ -1,5 +1,5 @@
 /*
-  Ardbann.h - ARDuino Backpropogating Artificial Neural Network.
+  Ardbann.cpp - ARDuino Backpropogating Artificial Neural Network.
   Created by Peter Frost, February 9, 2017.
   Released into the public domain.
 */
@@ -12,9 +12,11 @@ Ardbann::Ardbann(uint16_t rawInputArray[], const uint16_t maxInput,
                  const uint16_t numHiddenNeurons, const uint8_t numHiddenLayers,
                  const uint16_t numOutputNeurons)
 {
-
   float **outputLayerWeightTable = new float *[numOutputNeurons];
   float *outputLayerBiases = new float[numOutputNeurons];
+
+  randomSeed(analogRead(3));
+  // This pin should ideally be floating, change if using this pin
 
   for (uint8_t i = 0; i < numOutputNeurons; i++)
   {
@@ -59,7 +61,7 @@ Ardbann::Ardbann(uint16_t rawInputArray[], const uint16_t maxInput,
   network.inputLayer.rawInputs = rawInputArray;
   network.inputLayer.maxInput = maxInput;
   network.inputLayer.groupThresholds = new uint16_t[numInputNeurons];
-  network.inputLayer.groupTotal = new double[numInputNeurons];
+  network.inputLayer.groupTotal = new uint16_t[numInputNeurons];
 
   CalculateInputNeurons();
 
@@ -132,9 +134,7 @@ Ardbann::Ardbann(const uint16_t maxInput, String outputArray[],
   network.inputLayer.neurons = new float[numInputNeurons];
   network.inputLayer.maxInput = maxInput;
   network.inputLayer.groupThresholds = new uint16_t[numInputNeurons];
-  network.inputLayer.groupTotal = new double[numInputNeurons];
-
-  CalculateInputNeurons();
+  network.inputLayer.groupTotal = new uint16_t[numInputNeurons];
 
   network.outputLayer.numNeurons = numOutputNeurons;
   network.outputLayer.neurons = new float[numOutputNeurons];
@@ -149,14 +149,14 @@ Ardbann::Ardbann(const uint16_t maxInput, String outputArray[],
   network.hiddenLayer.neuronBiasTable = hiddenLayerNeuronBiasTable;
 }
 
-void Ardbann::NewInput(uint16_t rawInputArray[], uint32_t numInputs)
+void Ardbann::NewInput(uint16_t rawInputArray[], uint16_t numInputs)
 {
   network.inputLayer.rawInputs = rawInputArray;
   network.inputLayer.numRawInputs = numInputs;
   CalculateInputNeurons();
 }
 
-void Ardbann::NewInput(Ardbann::SampleBuffer sampleBuffer, uint32_t numInputs)
+void Ardbann::NewInput(Ardbann::SampleBuffer sampleBuffer, uint16_t numInputs)
 {
   network.inputLayer.rawInputs = sampleBuffer.samples;
   network.inputLayer.numRawInputs = numInputs;
@@ -170,8 +170,10 @@ void Ardbann::CalculateInputNeurons()
   for (uint16_t i = 0; i < network.inputLayer.numNeurons; i++)
   {
     network.inputLayer.groupThresholds[i] =
-        (network.inputLayer.maxInput / network.inputLayer.numNeurons) * (i + 1);
-    network.inputLayer.groupTotal[i] = 0.0;
+        ((network.inputLayer.maxInput + 1) / network.inputLayer.numNeurons) *
+        (i + 1);
+    network.inputLayer.groupTotal[i] = 0;
+    // Serial.println(network.inputLayer.groupThresholds[i]);
   }
 
   for (uint16_t i = 0; i < network.inputLayer.numRawInputs; i++)
@@ -181,15 +183,16 @@ void Ardbann::CalculateInputNeurons()
       if (network.inputLayer.rawInputs[i] <=
           network.inputLayer.groupThresholds[j])
       {
-        // Serial.printf("%.1f + %d, in group %d\n", groupTotal[j],
-        // network.inputLayer.rawInputs[i], j);
+        // Serial.printf("%d + 1 in group %d, ",
+        // network.inputLayer.groupTotal[j],
+        //              j);
         network.inputLayer.groupTotal[j] += 1;
         break;
       }
     }
   }
 
-  for (uint16_t i = 0; i < network.inputLayer.numRawInputs; i++)
+  for (uint16_t i = 0; i < network.inputLayer.numNeurons; i++)
   {
     if (network.inputLayer.groupTotal[i] >
         network.inputLayer.groupTotal[largestGroup])
@@ -200,9 +203,13 @@ void Ardbann::CalculateInputNeurons()
 
   for (uint16_t i = 0; i < network.inputLayer.numNeurons; i++)
   {
+    // Serial.printf("group total i: %u group total largest: %u ",
+    //              network.inputLayer.groupTotal[i],
+    //              network.inputLayer.groupTotal[largestGroup]);
     network.inputLayer.neurons[i] = network.inputLayer.groupTotal[i] /
                                     network.inputLayer.groupTotal[largestGroup];
-    // Serial.println(network.inputLayer.neurons[i]);
+    // Serial.printf("input neuron %d = %.3f, ", i,
+    // network.inputLayer.neurons[i]);
   }
 }
 
@@ -278,11 +285,12 @@ void Ardbann::PrintNetwork()
   Serial.print("\nInput: [");
   for (uint16_t i = 0; i < (network.inputLayer.numRawInputs - 1); i++)
   {
-    Serial.printf("%d, ", network.inputLayer.rawInputs[i]);
+    Serial.print(network.inputLayer.rawInputs[i]);
+    Serial.print(", ");
   }
-  Serial.printf(
-      "%d]\n",
+  Serial.print(
       network.inputLayer.rawInputs[network.inputLayer.numRawInputs - 1]);
+  Serial.print("]");
 
   Serial.printf("\nInput Layer | Hidden Layer ");
 
@@ -354,86 +362,206 @@ void Ardbann::PrintNetwork()
   Serial.println(network.outputLayer.stringArray[network.networkResponse]);
 }
 
-void Ardbann::Train(uint8_t correctOutput, uint32_t numSeconds,
-                    float learningRate, bool verbose)
+void Ardbann::TrainDriver(float learningRate, bool verbose,
+                          uint8_t numTrainingSets, uint8_t inputPin,
+                          uint16_t bufferSize, long numSeconds)
 {
+  String serialInput;
+  uint16_t trainingData[network.outputLayer.numNeurons][numTrainingSets]
+                       [bufferSize],
+      randomOutput, randomTrainingSet;
 
-  uint8_t networkResponse = InputLayer();
-  uint32_t startingMillis = millis();
-  numSeconds = numSeconds * 1000;
+  for (uint8_t i = 0; i < network.outputLayer.numNeurons; i++)
+  {
+    Serial.printf("\nAttach the sensor to material %u: ", i);
+    Serial.print(network.outputLayer.stringArray[i]);
+    serialInput = Serial.readString();
+    while (serialInput == NULL)
+    {
+      serialInput = Serial.readString();
+    }
+    Serial.println("\nReading...");
+    for (uint8_t j = 0; j < numTrainingSets; j++)
+    {
+      Serial.printf("%u...", j + 1);
+      for (uint16_t k = 0; k < bufferSize; k++)
+      {
+        trainingData[i][j][k] = analogRead(inputPin);
+        Serial.printf("%u, ", trainingData[i][j][k]);
+      }
+      delay(50);
+      Serial.println();
+    }
+  }
 
   if (verbose == true)
   {
     Serial.print("\nOutput Errors: \n");
   }
 
-  while ((millis() - startingMillis) < numSeconds)
+  unsigned long startTime = millis();
+  numSeconds *= 1000;
+
+  while ((millis() - startTime) < numSeconds)
   {
+    randomOutput = random(0, network.outputLayer.numNeurons);
+    randomTrainingSet = random(0, numTrainingSets);
+    NewInput(trainingData[randomOutput][randomTrainingSet], bufferSize);
+    InputLayer();
 
     if (verbose == true)
     {
-      ErrorReporting(correctOutput);
+      ErrorReporting(randomOutput);
+      Serial.printf("%u | %u ", randomOutput, randomTrainingSet);
     }
 
-    float dOutputErrorToOutputSum[network.outputLayer.numNeurons] = {0.0};
-    float dTotalErrorToHiddenNeuron = 0.0;
-    float outputNeuronWeightChange[network.outputLayer.numNeurons]
-                                  [network.hiddenLayer.numNeurons] = {0.0};
+    Train(randomOutput, learningRate);
+  }
+}
 
-    for (uint16_t i = 0; i < network.outputLayer.numNeurons; i++)
+void Ardbann::TrainDriver(float learningRate, bool verbose,
+                          uint8_t numTrainingSets, uint8_t inputPin,
+                          uint16_t bufferSize, float desiredCost)
+{
+  String serialInput;
+  uint16_t trainingData[network.outputLayer.numNeurons][numTrainingSets]
+                       [bufferSize],
+      randomOutput, randomTrainingSet;
+  float currentCost[network.outputLayer.numNeurons] = {4.0};
+  bool converged = false;
+
+  for (uint8_t i = 0; i < network.outputLayer.numNeurons; i++)
+  {
+    Serial.printf("\nAttach the sensor to material %u: ", i);
+    Serial.print(network.outputLayer.stringArray[i]);
+    serialInput = Serial.readString();
+    while (serialInput == NULL)
     {
-      if (i == correctOutput)
+      serialInput = Serial.readString();
+    }
+    Serial.println("Reading...");
+    for (uint8_t j = 0; j < numTrainingSets; j++)
+    {
+      Serial.printf("%u...", j + 1);
+      for (uint8_t k = 0; k < bufferSize; k++)
       {
-        dOutputErrorToOutputSum[i] =
-            (1 - network.outputLayer.neurons[i]) *
-            tanhDerivative(network.outputLayer.neurons[i]);
+        trainingData[i][j][k] = analogRead(inputPin);
+        Serial.printf("%u, ", trainingData[i][j][k]);
+      }
+      delay(50);
+      Serial.println();
+    }
+  }
+
+  if (verbose == true)
+  {
+    Serial.print("\nOutput Errors: \n");
+  }
+
+  while (!converged)
+  {
+    randomOutput = random(0, network.outputLayer.numNeurons);
+    randomTrainingSet = random(0, numTrainingSets);
+    currentCost[randomOutput] = 0.0;
+    NewInput(trainingData[randomOutput][randomTrainingSet], bufferSize);
+    InputLayer();
+
+    if (verbose == true)
+    {
+      ErrorReporting(randomOutput);
+      Serial.printf("%u | %u ", randomOutput, randomTrainingSet);
+    }
+
+    Train(randomOutput, learningRate);
+    for (uint8_t i = 0; i < network.outputLayer.numNeurons; i++)
+    {
+      if (i == randomOutput)
+      {
+        currentCost[randomOutput] += pow(1 - network.outputLayer.neurons[i], 2);
       }
       else
       {
-        dOutputErrorToOutputSum[i] =
-            -network.outputLayer.neurons[i] *
-            tanhDerivative(network.outputLayer.neurons[i]);
-      }
-      // Serial.printf("\ndOutputErrorToOutputSum[%d]: %.3f", i,
-      // dOutputErrorToOutputSum[i]);
-      for (uint16_t j = 0; j < network.hiddenLayer.numNeurons; j++)
-      {
-        outputNeuronWeightChange[i][j] =
-            dOutputErrorToOutputSum[i] *
-            network.hiddenLayer
-                .neuronTable[network.hiddenLayer.numLayers - 1][j] *
-            learningRate;
-        // Serial.printf("\n  outputNeuronWeightChange[%d][%d]: %.3f", i, j,
-        //              outputNeuronWeightChange[i][j]);
+        currentCost[randomOutput] += pow(network.outputLayer.neurons[i], 2);
       }
     }
+    currentCost[randomOutput] /= network.outputLayer.numNeurons;
 
-    for (uint16_t i = 0; i < network.hiddenLayer.numNeurons; i++)
+    for (uint8_t i = 0; i < network.outputLayer.numNeurons; i++)
     {
-      dTotalErrorToHiddenNeuron = 0.0;
-      for (uint16_t j = 0; j < network.outputLayer.numNeurons; j++)
+      Serial.print(currentCost[i]);
+      Serial.print(", ");
+      if (currentCost[i] > desiredCost)
       {
-        dTotalErrorToHiddenNeuron +=
-            dOutputErrorToOutputSum[j] * network.outputLayer.weightTable[j][i];
-        // Serial.printf("\nOld Output Weight[%d][%d]: %.3f", i, j,
-        // network.outputLayer.weightTable[j][i]);
-        network.outputLayer.weightTable[j][i] += outputNeuronWeightChange[j][i];
-        // Serial.printf("\nNew Output Weight[%d][%d]: %.3f", i, j,
-        // network.outputLayer.weightTable[j][i]);
+        break;
       }
-      for (uint16_t k = 0; k < network.inputLayer.numNeurons; k++)
+      if (i == (network.outputLayer.numNeurons - 1))
       {
-        // Serial.printf("\nOld Hidden Weight[%d][%d]: %.3f", i, k,
-        // network.hiddenLayer.weightLayerTable[0][i][k]);
-        network.hiddenLayer.weightLayerTable[0][i][k] +=
-            dTotalErrorToHiddenNeuron *
-            tanhDerivative(network.hiddenLayer.neuronTable[0][i]) *
-            network.inputLayer.neurons[k] * learningRate;
-        // Serial.printf("\nNew Hidden Weight[%d][%d]: %.3f", i, k,
-        // network.hiddenLayer.weightLayerTable[0][i][k]);
+        converged = true;
       }
     }
-    networkResponse = InputLayer();
+    Serial.print(desiredCost);
+  }
+}
+
+void Ardbann::Train(uint8_t correctOutput, float learningRate)
+{
+  float dOutputErrorToOutputSum[network.outputLayer.numNeurons] = {0.0};
+  float dTotalErrorToHiddenNeuron = 0.0;
+  float outputNeuronWeightChange[network.outputLayer.numNeurons]
+                                [network.hiddenLayer.numNeurons] = {0.0};
+
+  for (uint16_t i = 0; i < network.outputLayer.numNeurons; i++)
+  {
+    if (i == correctOutput)
+    {
+      dOutputErrorToOutputSum[i] =
+          (1 - network.outputLayer.neurons[i]) *
+          tanhDerivative(network.outputLayer.neurons[i]);
+    }
+    else
+    {
+      dOutputErrorToOutputSum[i] =
+          -network.outputLayer.neurons[i] *
+          tanhDerivative(network.outputLayer.neurons[i]);
+    }
+    // Serial.printf("\ndOutputErrorToOutputSum[%d]: %.3f", i,
+    // dOutputErrorToOutputSum[i]);
+    for (uint16_t j = 0; j < network.hiddenLayer.numNeurons; j++)
+    {
+      outputNeuronWeightChange[i][j] =
+          dOutputErrorToOutputSum[i] *
+          network.hiddenLayer
+              .neuronTable[network.hiddenLayer.numLayers - 1][j] *
+          learningRate;
+      // Serial.printf("\n  outputNeuronWeightChange[%d][%d]: %.3f", i, j,
+      //              outputNeuronWeightChange[i][j]);
+    }
+  }
+
+  for (uint16_t i = 0; i < network.hiddenLayer.numNeurons; i++)
+  {
+    dTotalErrorToHiddenNeuron = 0.0;
+    for (uint16_t j = 0; j < network.outputLayer.numNeurons; j++)
+    {
+      dTotalErrorToHiddenNeuron +=
+          dOutputErrorToOutputSum[j] * network.outputLayer.weightTable[j][i];
+      // Serial.printf("\nOld Output Weight[%d][%d]: %.3f", i, j,
+      // network.outputLayer.weightTable[j][i]);
+      network.outputLayer.weightTable[j][i] += outputNeuronWeightChange[j][i];
+      // Serial.printf("\nNew Output Weight[%d][%d]: %.3f", i, j,
+      // network.outputLayer.weightTable[j][i]);
+    }
+    for (uint16_t k = 0; k < network.inputLayer.numNeurons; k++)
+    {
+      // Serial.printf("\nOld Hidden Weight[%d][%d]: %.3f", i, k,
+      // network.hiddenLayer.weightLayerTable[0][i][k]);
+      network.hiddenLayer.weightLayerTable[0][i][k] +=
+          dTotalErrorToHiddenNeuron *
+          tanhDerivative(network.hiddenLayer.neuronTable[0][i]) *
+          network.inputLayer.neurons[k] * learningRate;
+      // Serial.printf("\nNew Hidden Weight[%d][%d]: %.3f", i, k,
+      // network.hiddenLayer.weightLayerTable[0][i][k]);
+    }
   }
 }
 
@@ -549,12 +677,12 @@ void Ardbann::ErrorReporting(uint8_t correctResponse)
   {
     if (i == correctResponse)
     {
-      Serial.printf("%-7.3f, ",
+      Serial.printf("%-7.3f | ",
                     (1 - network.outputLayer.neurons[correctResponse]));
     }
     else
     {
-      Serial.printf("%-7.3f, ", -network.outputLayer.neurons[i]);
+      Serial.printf("%-7.3f | ", -network.outputLayer.neurons[i]);
     }
   }
 }

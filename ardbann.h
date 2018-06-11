@@ -15,8 +15,8 @@ struct InputLayer
   uint16_t maxInput;
   uint16_t *rawInputs;
   uint16_t *groupThresholds;
+  uint16_t *groupTotal;
   float *neurons;
-  double *groupTotal;
 };
 
 struct HiddenLayer
@@ -67,11 +67,14 @@ public:
                     uint16_t numInputs, uint16_t numOutputs);
   uint8_t OutputLayer();
   void PrintNetwork();
-  void Train(uint8_t correctOutput, uint32_t numSeconds, float learningRate,
-             bool showError);
+  void TrainDriver(float learningRate, bool verbose, uint8_t numTrainingSets,
+                   uint8_t inputPin, uint16_t bufferSize, long numSeconds);
+  void TrainDriver(float learningRate, bool verbose, uint8_t numTrainingSets,
+                   uint8_t inputPin, uint16_t bufferSize, float desiredError);
+  void Train(uint8_t correctOutput, float learningRate);
   float tanhDerivative(float inputValue);
-  void NewInput(uint16_t rawInputArray[], uint32_t numInputs);
-  void NewInput(Ardbann::SampleBuffer sampleBuffer, uint32_t numInputs);
+  void NewInput(uint16_t rawInputArray[], uint16_t numInputs);
+  void NewInput(Ardbann::SampleBuffer sampleBuffer, uint16_t numInputs);
   void ErrorReporting(uint8_t correctResponse);
   void PrintInputNeuronDetails(uint8_t neuronNum);
   void PrintOutputNeuronDetails(uint8_t neuronNum);
